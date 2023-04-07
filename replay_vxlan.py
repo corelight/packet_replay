@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 
 import argparse
-import socket
 import os
-import time
+import socket
 import struct
+import time
 
 from scapy.all import PcapReader
 
 
 class PCAPPlayer(object):
-    def __init__(self, filename, speed=1):
+    def __init__(self, filename, speed=1.0):
         if not os.path.isfile(filename):
             raise FileNotFoundError(f"Path {filename} does not exist or is not file")
         with open(filename, "rb") as f:
@@ -35,6 +35,7 @@ class PCAPPlayer(object):
                 send_at = self.speed * (pkt.time - pkt_start) + replay_start
                 curr_time = time.time()
                 wait_time = send_at - curr_time
+                wait_time = float(wait_time)
                 if wait_time > 0.0001:
                     time.sleep(wait_time)
             except EOFError:
@@ -43,7 +44,7 @@ class PCAPPlayer(object):
 
 class PCAPPlayerVXLAN(PCAPPlayer):
     def __init__(
-        self, filename, target_ip, target_port=4789, speed=1, flags=0x8, vxlan_id=100
+        self, filename, target_ip, target_port=4789, speed=1.0, flags=0x8, vxlan_id=100
     ):
         super().__init__(filename, speed)
         self._target = (target_ip, target_port)
@@ -59,7 +60,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("pcap_file")
-    parser.add_argument("-s", "--speed", type=float)
+    parser.add_argument("-s", "--speed", type=float, default=1.0)
     parser.add_argument("-t", "--target-ip", type=str)
 
     args = parser.parse_args()
