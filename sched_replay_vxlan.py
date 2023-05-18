@@ -2,10 +2,9 @@
 
 import argparse
 import logging
-from multiprocessing import Process
 
 from pcap_schedule import PCAPScheduler
-from replay_vxlan import PCAPPlayerVXLAN
+from replay_vxlan import PCAPPlayerPacket, PCAPPlayerVXLAN
 
 logging.basicConfig(
     format="%(asctime)s [%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
@@ -16,41 +15,37 @@ logger.setLevel(logging.DEBUG)
 
 
 class PCAPSchedVXLAN(PCAPScheduler):
+    PCAPPlayer = PCAPPlayerVXLAN
+
     def __init__(self, target_ip, *args, **kw):
         self.target_ip = target_ip
 
         super().__init__(*args, **kw)
 
-    def replay(self):
-        schedule = self.get_schedule()
-        processes = []
-        for thread in schedule:
-            # start a thread
-            p = Process(target=self.replay_task, args=(thread["pcaps"],))
-            processes.append(p)
-            p.start()
-        # wait for processes
-        for process in processes:
-            # fixme: might want to look for ones that are done first?
-            process.join()
+    def get_player_kwargs(self):
+        args = super().get_player_kwargs()
+        args["target_ip"] = self.target_ip
+        return args
 
-    def replay_task(self, pcaps):
-        logger.info("replay task")
-        for pcap in pcaps:
-            logger.info(f"replaying {pcap['filename']} at {pcap['replay_rate']}")
-            player = PCAPPlayerVXLAN(
-                filename=pcap["filename"],
-                speed=pcap["replay_rate"],
-                target_ip=self.target_ip,
-            )
-            player.replay_pcap()
+
+class PCAPSchedPacket(PCAPScheduler):
+    PCAPPlayer = PCAPPlayerPacket
+
+    def __init__(self, interface, *args, **kw):
+        self.interface = interface
+
+        super().__init__(*args, **kw)
+
+    def get_player_kwargs(self):
+        args = super().get_player_kwargs()
+        args["interface"] = self.interface
+        return args
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("pcap_dir")
-    parser.add_argument("-t", "--target-ip", type=str)
     parser.add_argument(
         "-d",
         "--duration",
@@ -59,14 +54,28 @@ if __name__ == "__main__":
         help="attempt to replay all PCAPs in duration seconds",
     )
 
-    args = parser.parse_args()
+    subparsers = parser.add_subparsers(dest="output_type")
+    subparsers.required = True
 
+    parser_vxlan = subparsers.add_parser("vxlan")
+    parser_vxlan.add_argument("-t", "--target-ip", type=str)
+
+    parser_packet = subparsers.add_parser("packet")
+    parser_packet.add_argument("-i", "--interface", type=str)
+
+    args = parser.parse_args()
     # raise Exception("stop")
     logger.info("get scheduler")
-    sched = PCAPSchedVXLAN(
-        target_ip=args.target_ip,
-        max_duration=args.duration,
-    )
+    if args.output_type == "vxlan":
+        sched = PCAPSchedVXLAN(
+            target_ip=args.target_ip,
+            max_duration=args.duration,
+        )
+    elif args.output_type == "packet":
+        sched = PCAPSchedPacket(
+            interface=args.interface,
+            max_duration=args.duration,
+        )
     logger.info("parsing pcaps")
     sched.add_pcap_dir(args.pcap_dir)
     logger.info("starting replay")

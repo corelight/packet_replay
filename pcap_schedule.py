@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import pprint
+from multiprocessing import Process
 
 import scapy.utils
 
@@ -88,6 +89,33 @@ class PCAPScheduler(object):
         if self.threads is None:
             self.build_schedule()
         return self.threads
+
+    def replay(self):
+        schedule = self.get_schedule()
+        processes = []
+        for thread in schedule:
+            # start a thread
+            p = Process(target=self.replay_task, args=(thread["pcaps"],))
+            processes.append(p)
+            p.start()
+        # wait for processes
+        for process in processes:
+            # fixme: might want to look for ones that are done first?
+            process.join()
+
+    def get_player_kwargs(self):
+        return {}
+
+    def replay_task(self, pcaps):
+        logger.info("replay task")
+        for pcap in pcaps:
+            logger.info(f"replaying {pcap['filename']} at {pcap['replay_rate']}")
+            player = self.PCAPPlayer(
+                filename=pcap["filename"],
+                speed=pcap["replay_rate"],
+                **self.get_player_kwargs(),
+            )
+            player.replay_pcap()
 
 
 if __name__ == "__main__":
