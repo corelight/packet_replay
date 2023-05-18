@@ -4,7 +4,7 @@ import argparse
 import logging
 
 from pcap_schedule import PCAPScheduler
-from replay_vxlan import PCAPPlayerPacket, PCAPPlayerVXLAN
+from replay import PCAPPlayerPacket, PCAPPlayerVXLAN
 
 logging.basicConfig(
     format="%(asctime)s [%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
