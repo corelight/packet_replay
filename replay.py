@@ -49,7 +49,7 @@ class PCAPPlayerVXLAN(PCAPPlayer):
         super().__init__(filename, speed)
         self._target = (target_ip, target_port)
         self._socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-        vxlan_id_bytes = [vxlan_id << 16 & 0xFF, vxlan_id << 8 & 0xFF, vxlan_id & 0xFF]
+        vxlan_id_bytes = [vxlan_id >> 16 & 0xFF, vxlan_id >> 8 & 0xFF, vxlan_id & 0xFF]
         self._vxlan_hdr = struct.pack("!B3x3Bx", flags, *vxlan_id_bytes)
 
     def _replay(self, pkt):
