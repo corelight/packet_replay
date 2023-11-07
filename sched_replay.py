@@ -45,6 +45,8 @@ class PCAPSchedPacket(PCAPScheduler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("-l", "--insert-log", action="store_true", default=False)
+
     parser.add_argument("pcap_dir")
     parser.add_argument(
         "-d",
@@ -70,11 +72,13 @@ if __name__ == "__main__":
         sched = PCAPSchedVXLAN(
             target_ip=args.target_ip,
             max_duration=args.duration,
+            insert_log=args.insert_log,
         )
     elif args.output_type == "packet":
         sched = PCAPSchedPacket(
             interface=args.interface,
             max_duration=args.duration,
+            insert_log=args.insert_log,
         )
     logger.info("parsing pcaps")
     sched.add_pcap_dir(args.pcap_dir)

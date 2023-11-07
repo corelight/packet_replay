@@ -12,16 +12,19 @@ logger = logging.getLogger("pcap_schedule")
 
 
 class PCAPScheduler(object):
-    def __init__(self, max_duration=None):
+    def __init__(self, max_duration=None, insert_log=False):
         if max_duration is None:
             # this is more of a rough estimate
             max_duration = 6 * 60 * 60  # 6 hours
         self.max_duration = max_duration
+        self.insert_log = insert_log
         self.pcaps = {}
         self.threads = None
+        self.current_pcap_id = 0
 
     def get_pcap_info(self, filename):
         logger.debug(f"get info for {filename}")
+        self.current_pcap_id += 1
         pcap_info = {
             "filename": filename,
             "packets": 0,
@@ -29,6 +32,7 @@ class PCAPScheduler(object):
             "start": None,
             "end": None,
             "duration": None,
+            "id": self.current_pcap_id
         }
         with scapy.utils.PcapReader(filename) as pcap:
             last = None
@@ -113,6 +117,8 @@ class PCAPScheduler(object):
             player = self.PCAPPlayer(
                 filename=pcap["filename"],
                 speed=pcap["replay_rate"],
+                pcap_id=pcap["id"],
+                insert_log=self.insert_log,
                 **self.get_player_kwargs(),
             )
             player.replay_pcap()
