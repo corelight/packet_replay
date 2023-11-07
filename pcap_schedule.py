@@ -36,12 +36,23 @@ class PCAPScheduler(object):
         }
         with scapy.utils.PcapReader(filename) as pcap:
             last = None
+            outer_layers = set()
+            max_len = 0
             for pkt in pcap:
+                outer_layers.add(type(pkt.firstlayer()))
+                if len(pkt) > max_len:
+                    max_len = len(pkt)
                 last = pkt
                 if pcap_info["start"] is None:
                     pcap_info["start"] = pkt.time
                 pcap_info["packets"] += 1
                 pcap_info["bytes"] += len(pkt)
+            for layer in outer_layers:
+                if layer not in [scapy.layers.l2.Ether, scapy.layers.l2.Dot3]:
+                    logger.warning(f"unsupported layer type: {layer} in {filename}")
+            if max_len > 1518:
+                logger.warning(f"jumbo frames (max {max_len} bytes) in {filename}")
+            print()
             pcap_info["end"] = last.time
             pcap_info["duration"] = last.time - pcap_info["start"]
             replay_rate = 1
