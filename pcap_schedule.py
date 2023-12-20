@@ -3,12 +3,16 @@
 import logging
 import math
 import os
+import pickle
 import pprint
 from multiprocessing import Process
 
 import scapy.utils
 
 logger = logging.getLogger("pcap_schedule")
+
+cache_dir = os.path.join(os.environ['HOME'], ".cache/packet_replay")
+cache_file = os.path.join(cache_dir, "pcap_info.cache")
 
 
 class PCAPScheduler(object):
@@ -21,8 +25,67 @@ class PCAPScheduler(object):
         self.pcaps = {}
         self.threads = None
         self.current_pcap_id = 0
+        self.pcap_info_cache_loaded = 0
+        self.pcap_info_cache = {}
+        self.load_pcap_cache()
+
+    def load_pcap_cache(self):
+        if os.path.isfile(cache_file):
+            s = os.stat(cache_file)
+            if s.st_mtime == self.pcap_info_cache_loaded:
+                return
+            with open(cache_file, "rb") as f:
+                loaded_entries = pickle.load(f)
+                self.pcap_info_cache.update(loaded_entries)
+                self.pcap_info_cache_loaded = s.st_mtime
+
+    def save_pcap_cache(self):
+        # FIXME: may be race conditions, but should hopefully stay consistent
+
+        if not os.path.isdir(cache_dir):
+            os.makedirs(cache_dir)
+
+        new_cache = f"{cache_file}.new-{os.getpid()}"
+        try:
+            with open(new_cache, "wb") as f:
+                pickle.dump(self.pcap_info_cache, f)
+            os.rename(new_cache, cache_file)
+        finally:
+            if os.path.isfile(new_cache):
+                os.unlink(new_cache)
+
+    def check_cache(self):
+        self.load_pcap_cache()
 
     def get_pcap_info(self, filename):
+        abs_filename = os.path.abspath(filename)
+
+        s = os.stat(abs_filename)
+
+        self.check_cache()
+        valid_cache = False
+        if abs_filename in self.pcap_info_cache:
+            valid_cache = True
+            cached = self.pcap_info_cache[abs_filename]
+            cached_s = cached["stat"]
+
+            for i in ["st_ctime", "st_mtime", "st_size"]:
+                if getattr(s, i) != getattr(cached_s, i):
+                    valid_cache = False
+                    break
+
+            if valid_cache:
+                return cached
+
+        pcap_info = self._get_pcap_info(filename)
+        pcap_info["stat"] = s
+
+        self.pcap_info_cache[abs_filename] = pcap_info
+        self.save_pcap_cache()
+
+        return pcap_info
+
+    def _get_pcap_info(self, filename):
         logger.debug(f"get info for {filename}")
         self.current_pcap_id += 1
         pcap_info = {
