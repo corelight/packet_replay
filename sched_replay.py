@@ -4,7 +4,7 @@ import argparse
 import logging
 
 from pcap_schedule import PCAPScheduler
-from replay import PCAPPlayerPacket, PCAPPlayerVXLAN
+from replay import PCAPPlayerPacket, PCAPPlayerVXLAN, PCAPPlayerGENEVE
 
 logging.basicConfig(
     format="%(asctime)s [%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
@@ -14,8 +14,8 @@ logger.setLevel(logging.DEBUG)
 # logger.addHandler(logging.StreamHandler())
 
 
-class PCAPSchedVXLAN(PCAPScheduler):
-    PCAPPlayer = PCAPPlayerVXLAN
+class PCAPSchedUDPBase(PCAPScheduler):
+    PCAPPlayer = None
 
     def __init__(self, target_ip, *args, **kw):
         self.target_ip = target_ip
@@ -26,6 +26,14 @@ class PCAPSchedVXLAN(PCAPScheduler):
         args = super().get_player_kwargs()
         args["target_ip"] = self.target_ip
         return args
+
+
+class PCAPSchedVXLAN(PCAPSchedUDPBase):
+    PCAPPlayer = PCAPPlayerVXLAN
+
+
+class PCAPSchedGENEVE(PCAPSchedUDPBase):
+    PCAPPlayer = PCAPPlayerGENEVE
 
 
 class PCAPSchedPacket(PCAPScheduler):
@@ -62,6 +70,9 @@ if __name__ == "__main__":
     parser_vxlan = subparsers.add_parser("vxlan")
     parser_vxlan.add_argument("-t", "--target-ip", type=str)
 
+    parser_vxlan = subparsers.add_parser("geneve")
+    parser_vxlan.add_argument("-t", "--target-ip", type=str)
+
     parser_packet = subparsers.add_parser("packet")
     parser_packet.add_argument("-i", "--interface", type=str)
 
@@ -70,6 +81,12 @@ if __name__ == "__main__":
     logger.info("get scheduler")
     if args.output_type == "vxlan":
         sched = PCAPSchedVXLAN(
+            target_ip=args.target_ip,
+            max_duration=args.duration,
+            insert_log=args.insert_log,
+        )
+    elif args.output_type == "geneve":
+        sched = PCAPSchedGENEVE(
             target_ip=args.target_ip,
             max_duration=args.duration,
             insert_log=args.insert_log,

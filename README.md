@@ -4,9 +4,11 @@ Try to replay packets.
 
 With `vxlan`, tries to encapsulate packets from the given pcap file/directory in a VXLAN header and send to specified target.
 
+With `geneve`, same as above but GENEVE encapsulated
+
 With `packet`, tries to send packets from the given pcap file/directory out the specified interface.
 
-`replay.py ... vxlan` does not require root privileges, `replay.py ... packet` does.
+`replay.py ... vxlan` and `replay.py ... geneve` do not require root privileges, `replay.py ... packet` does.
 
 Depends on scapy (`apt install python3-scapy`)
 

@@ -85,6 +85,29 @@ class PCAPPlayerVXLAN(PCAPPlayer):
         self._socket.sendto(self._vxlan_hdr + bytes(pkt), self._target)
 
 
+class PCAPPlayerGENEVE(PCAPPlayer):
+    def __init__(
+        self, filename, target_ip, target_port=6081, speed=1.0, flags=0x00, vni=100, options=b'', **kw
+    ):
+        super().__init__(filename, speed, **kw)
+        self._target = (target_ip, target_port)
+        self._socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+        version = 0
+        protocol_type = 0x6558  # Transparent Ethernet bridging
+        length = len(options)
+        if length & 0x3:
+            raise ValueError("Options length must be a multiple of 4 bytes")
+        hlen = length >> 2
+        if hlen > 0x3F:
+            raise ValueError("options exceeds maximum length")
+        vni_bytes = [vni >> 16 & 0xFF, vni >> 8 & 0xFF, vni & 0xFF]
+        vl = ((version & 0x3) << 6) | (hlen & 0x3f)
+        self._geneve_hdr = struct.pack(f"!BBH3Bx{length}s", vl, flags, protocol_type, *vni_bytes, options)
+
+    def _replay(self, pkt):
+        self._socket.sendto(self._geneve_hdr + bytes(pkt), self._target)
+
+
 class PCAPPlayerPacket(PCAPPlayer):
     def __init__(self, filename, interface, speed=1.0, **kw):
         super().__init__(filename, speed, **kw)
@@ -110,12 +133,19 @@ if __name__ == "__main__":
     parser_vxlan = subparsers.add_parser("vxlan")
     parser_vxlan.add_argument("-t", "--target-ip", type=str)
 
+    parser_vxlan = subparsers.add_parser("geneve")
+    parser_vxlan.add_argument("-t", "--target-ip", type=str)
+
     parser_packet = subparsers.add_parser("packet")
     parser_packet.add_argument("-i", "--interface", type=str)
 
     args = parser.parse_args()
     if args.output_type == "vxlan":
         player = PCAPPlayerVXLAN(
+            args.pcap_file, target_ip=args.target_ip, speed=args.speed, insert_log=args.insert_log
+        )
+    elif args.output_type == "geneve":
+        player = PCAPPlayerGENEVE(
             args.pcap_file, target_ip=args.target_ip, speed=args.speed, insert_log=args.insert_log
         )
     elif args.output_type == "packet":
