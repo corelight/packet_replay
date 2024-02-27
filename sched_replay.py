@@ -64,6 +64,14 @@ if __name__ == "__main__":
         help="attempt to replay all PCAPs in duration seconds",
     )
 
+    parser.add_argument(
+        "-N",
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Don't actually send packets, just parse pcaps"
+    )
+
     subparsers = parser.add_subparsers(dest="output_type")
     subparsers.required = True
 
@@ -99,5 +107,10 @@ if __name__ == "__main__":
         )
     logger.info("parsing pcaps")
     sched.add_pcap_dir(args.pcap_dir)
+
+    if args.dry_run:
+        logger.info("dry run: skipping replay")
+        exit(0)
+
     logger.info("starting replay")
     sched.replay()
