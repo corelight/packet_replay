@@ -35,7 +35,7 @@ class PCAPPlayer(object):
         payload = f"<{prival}>{timestamp} {hostname} {program}[{pid}]: {message}"
 
         packet = Ether(src="02:00:00:00:00:00", dst="fe:ff:ff:ff:ff:ff")
-        packet /= IP(src='0.0.0.0', dst='192.0.2.0')
+        packet /= IP(src="0.0.0.0", dst="192.0.2.0")
         packet /= UDP(dport=514, sport=self.pcap_id % 65536)
         packet /= Raw(load=payload)
 
@@ -71,13 +71,38 @@ class PCAPPlayer(object):
                 return
 
 
-class PCAPPlayerVXLAN(PCAPPlayer):
-    def __init__(
-        self, filename, target_ip, target_port=4789, speed=1.0, flags=0x8, vxlan_id=100, **kw
-    ):
+class PCAPPlayerUDP(PCAPPlayer):
+    def __init__(self, filename, target_ip, source_port, target_port, speed=1.0, **kw):
         super().__init__(filename, speed, **kw)
         self._target = (target_ip, target_port)
         self._socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+        if source_port is not None:
+            self._socket.bind(("0.0.0.0", source_port))
+
+    def __del__(self):
+        self._socket.close()
+
+
+class PCAPPlayerVXLAN(PCAPPlayerUDP):
+    def __init__(
+        self,
+        filename,
+        target_ip,
+        source_port=None,
+        target_port=4789,
+        speed=1.0,
+        flags=0x8,
+        vxlan_id=100,
+        **kw,
+    ):
+        super().__init__(
+            filename,
+            target_ip=target_ip,
+            source_port=source_port,
+            target_port=target_port,
+            speed=speed,
+            **kw,
+        )
         vxlan_id_bytes = [vxlan_id >> 16 & 0xFF, vxlan_id >> 8 & 0xFF, vxlan_id & 0xFF]
         self._vxlan_hdr = struct.pack("!B3x3Bx", flags, *vxlan_id_bytes)
 
@@ -85,13 +110,27 @@ class PCAPPlayerVXLAN(PCAPPlayer):
         self._socket.sendto(self._vxlan_hdr + bytes(pkt), self._target)
 
 
-class PCAPPlayerGENEVE(PCAPPlayer):
+class PCAPPlayerGENEVE(PCAPPlayerUDP):
     def __init__(
-        self, filename, target_ip, target_port=6081, speed=1.0, flags=0x00, vni=100, options=b'', **kw
+        self,
+        filename,
+        target_ip,
+        source_port=None,
+        target_port=6081,
+        speed=1.0,
+        flags=0x00,
+        vni=100,
+        options=b"",
+        **kw,
     ):
-        super().__init__(filename, speed, **kw)
-        self._target = (target_ip, target_port)
-        self._socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+        super().__init__(
+            filename,
+            target_ip=target_ip,
+            source_port=source_port,
+            target_port=target_port,
+            speed=speed,
+            **kw,
+        )
         version = 0
         protocol_type = 0x6558  # Transparent Ethernet bridging
         length = len(options)
@@ -101,8 +140,10 @@ class PCAPPlayerGENEVE(PCAPPlayer):
         if hlen > 0x3F:
             raise ValueError("options exceeds maximum length")
         vni_bytes = [vni >> 16 & 0xFF, vni >> 8 & 0xFF, vni & 0xFF]
-        vl = ((version & 0x3) << 6) | (hlen & 0x3f)
-        self._geneve_hdr = struct.pack(f"!BBH3Bx{length}s", vl, flags, protocol_type, *vni_bytes, options)
+        vl = ((version & 0x3) << 6) | (hlen & 0x3F)
+        self._geneve_hdr = struct.pack(
+            f"!BBH3Bx{length}s", vl, flags, protocol_type, *vni_bytes, options
+        )
 
     def _replay(self, pkt):
         self._socket.sendto(self._geneve_hdr + bytes(pkt), self._target)
@@ -142,15 +183,24 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.output_type == "vxlan":
         player = PCAPPlayerVXLAN(
-            args.pcap_file, target_ip=args.target_ip, speed=args.speed, insert_log=args.insert_log
+            args.pcap_file,
+            target_ip=args.target_ip,
+            speed=args.speed,
+            insert_log=args.insert_log,
         )
     elif args.output_type == "geneve":
         player = PCAPPlayerGENEVE(
-            args.pcap_file, target_ip=args.target_ip, speed=args.speed, insert_log=args.insert_log
+            args.pcap_file,
+            target_ip=args.target_ip,
+            speed=args.speed,
+            insert_log=args.insert_log,
         )
     elif args.output_type == "packet":
         player = PCAPPlayerPacket(
-            args.pcap_file, interface=args.interface, speed=args.speed, insert_log=args.insert_log
+            args.pcap_file,
+            interface=args.interface,
+            speed=args.speed,
+            insert_log=args.insert_log,
         )
 
     player.replay_pcap()

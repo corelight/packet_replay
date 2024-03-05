@@ -69,7 +69,7 @@ if __name__ == "__main__":
         "--dry-run",
         action="store_true",
         default=False,
-        help="Don't actually send packets, just parse pcaps"
+        help="Don't actually send packets, just parse pcaps",
     )
 
     subparsers = parser.add_subparsers(dest="output_type")
