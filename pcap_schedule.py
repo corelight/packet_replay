@@ -11,93 +11,66 @@ import scapy.utils
 
 logger = logging.getLogger("pcap_schedule")
 
-cache_dir = os.path.join(os.environ['HOME'], ".cache/packet_replay")
-cache_file = os.path.join(cache_dir, "pcap_info.cache")
+cachedir = ".packet_replay"
 
 
-class PCAPScheduler(object):
-    def __init__(self, max_duration=None, insert_log=False):
-        if max_duration is None:
-            # this is more of a rough estimate
-            max_duration = 6 * 60 * 60  # 6 hours
-        self.max_duration = max_duration
-        self.insert_log = insert_log
-        self.pcaps = {}
-        self.threads = None
-        self.current_pcap_id = 0
-        self.pcap_info_cache_loaded = 0
-        self.pcap_info_cache = {}
+class PCAPFileInfo(object):
+    def __init__(self, filename, pcap_id):
+        basename = os.path.basename(filename)
+        dirname = os.path.dirname(filename)
+
+        self._filename = basename
+        self._filepath = dirname
+        self._filename_long = filename
+
+        self._pcap_id = pcap_id
+
+        current_cache_dir = os.path.join(dirname, cachedir)
+        if not os.path.isdir(current_cache_dir):
+            os.makedirs(current_cache_dir)
+
+        print(f"{current_cache_dir}")
+        self._filecache = os.path.join(current_cache_dir, f"{self._filename}.cache")
+        print(f"{self._filecache}")
+        self._filecache_loaded = False
+        self._filecache_entries = {}
+
         self.load_pcap_cache()
 
     def load_pcap_cache(self):
-        if os.path.isfile(cache_file):
-            s = os.stat(cache_file)
-            if s.st_mtime == self.pcap_info_cache_loaded:
+        if os.path.isfile(self._filecache):
+            s = os.stat(self._filecache)
+            if s.st_mtime == self._filecache_loaded:
                 return
-            with open(cache_file, "rb") as f:
+            with open(self._filecache, "rb") as f:
                 loaded_entries = pickle.load(f)
-                self.pcap_info_cache.update(loaded_entries)
-                self.pcap_info_cache_loaded = s.st_mtime
+                self._filecache_entries.update(loaded_entries)
+                self._filecache_loaded = s.st_mtime
 
     def save_pcap_cache(self):
         # FIXME: may be race conditions, but should hopefully stay consistent
-
-        if not os.path.isdir(cache_dir):
-            os.makedirs(cache_dir)
-
-        new_cache = f"{cache_file}.new-{os.getpid()}"
+        print(f"saving to {self._filecache} ({self._filename_long})")
+        new_cache = f"{self._filecache}.new-{os.getpid()}"
         try:
             with open(new_cache, "wb") as f:
-                pickle.dump(self.pcap_info_cache, f)
-            os.rename(new_cache, cache_file)
+                pickle.dump(self._filecache_entries, f)
+            os.rename(new_cache, self._filecache)
         finally:
             if os.path.isfile(new_cache):
                 os.unlink(new_cache)
 
-    def check_cache(self):
-        self.load_pcap_cache()
-
-    def get_pcap_info(self, filename):
-        abs_filename = os.path.abspath(filename)
-
-        s = os.stat(abs_filename)
-
-        self.check_cache()
-        valid_cache = False
-        if abs_filename in self.pcap_info_cache:
-            valid_cache = True
-            cached = self.pcap_info_cache[abs_filename]
-            cached_s = cached["stat"]
-
-            for i in ["st_ctime", "st_mtime", "st_size"]:
-                if getattr(s, i) != getattr(cached_s, i):
-                    valid_cache = False
-                    break
-
-            if valid_cache:
-                return cached
-
-        pcap_info = self._get_pcap_info(filename)
-        pcap_info["stat"] = s
-
-        self.pcap_info_cache[abs_filename] = pcap_info
-        self.save_pcap_cache()
-
-        return pcap_info
-
-    def _get_pcap_info(self, filename):
-        logger.debug(f"get info for {filename}")
-        self.current_pcap_id += 1
+    def _get_pcap_info(self):
+        logger.debug(f"get info for {self._filename_long}")
         pcap_info = {
-            "filename": filename,
+            "filename": self._filename_long,
             "packets": 0,
             "bytes": 0,
             "start": None,
             "end": None,
             "duration": None,
-            "id": self.current_pcap_id
         }
-        with scapy.utils.PcapReader(filename) as pcap:
+        warnings = []
+        with scapy.utils.PcapReader(self._filename_long) as pcap:
             last = None
             outer_layers = set()
             max_len = 0
@@ -110,28 +83,86 @@ class PCAPScheduler(object):
                     pcap_info["start"] = pkt.time
                 pcap_info["packets"] += 1
                 pcap_info["bytes"] += len(pkt)
+
+            unsupported_layer_types = []
             for layer in outer_layers:
                 if layer not in [scapy.layers.l2.Ether, scapy.layers.l2.Dot3]:
-                    logger.warning(f"unsupported layer type: {layer} in {filename}")
+                    w = f"unsupported layer type: {layer} in {self._filename_long}"
+                    logger.warning(w)
+                    warnings.append(w)
+                    unsupported_layer_types.append(str(layer))
+            pcap_info["unsupported_layer_types"] = unsupported_layer_types
+
             if max_len > 1518:
-                logger.warning(f"jumbo frames (max {max_len} bytes) in {filename}")
+                w = f"jumbo frames (max {max_len} bytes) in {self._filename_long}"
+                logger.warning(w)
+                warnings.append(w)
+                pcap_info["jumbo"] = True
+            pcap_info["max_len"] = max_len
+
             print()
             pcap_info["end"] = last.time
             pcap_info["duration"] = last.time - pcap_info["start"]
-            replay_rate = 1
-            replay_duration = pcap_info["duration"]
-            if pcap_info["duration"] > self.max_duration:
-                replay_rate = float(pcap_info["duration"] / self.max_duration)
-                replay_duration = pcap_info["duration"] / replay_rate
-            pcap_info["replay_rate"] = replay_rate
-            pcap_info["replay_duration"] = replay_duration
 
         return pcap_info
+
+    def get_pcap_info_cached(self):
+        s = os.stat(self._filename_long)
+
+        valid_cache = False
+        if self._filecache_loaded:
+            valid_cache = True
+            cached = self._filecache_entries.copy()
+            cached_s = self._filecache_entries["stat"]
+
+            for i in ["st_ctime", "st_mtime", "st_size"]:
+                if getattr(s, i) != getattr(cached_s, i):
+                    valid_cache = False
+                    break
+
+            if valid_cache:
+                return cached
+
+        pcap_info = self._get_pcap_info()
+        pcap_info["stat"] = s
+
+        self._filecache_entries.update(pcap_info)
+        self.save_pcap_cache()
+
+        return pcap_info
+
+    def get_pcap_info(self, max_duration):
+        pcap_info = self.get_pcap_info_cached()
+
+        # Don't cache these
+        replay_rate = 1
+        replay_duration = pcap_info["duration"]
+        if pcap_info["duration"] > max_duration:
+            replay_rate = float(pcap_info["duration"] / max_duration)
+            replay_duration = pcap_info["duration"] / replay_rate
+        pcap_info["replay_rate"] = replay_rate
+        pcap_info["replay_duration"] = replay_duration
+
+        return pcap_info
+
+
+class PCAPScheduler(object):
+    def __init__(self, max_duration=None, insert_log=False):
+        if max_duration is None:
+            # this is more of a rough estimate
+            max_duration = 6 * 60 * 60  # 6 hours
+        self.max_duration = max_duration
+        self.insert_log = insert_log
+        self.pcaps = {}
+        self.threads = None
+        self.current_pcap_id = 0
 
     def add_pcap(self, filename):
         if filename in self.pcaps:
             raise Exception(f"pcap {filename} already added")
-        self.pcaps[filename] = self.get_pcap_info(filename)
+        self.current_pcap_id += 1
+        info = PCAPFileInfo(filename, self.current_pcap_id)
+        self.pcaps[filename] = info.get_pcap_info(max_duration=self.max_duration)
 
     def add_pcap_dir(self, pcap_dir):
         logger.debug(f"walking {pcap_dir}")
