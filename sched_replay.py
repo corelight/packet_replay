@@ -55,6 +55,14 @@ if __name__ == "__main__":
 
     parser.add_argument("-l", "--insert-log", action="store_true", default=False)
 
+    parser.add_argument(
+        "-N",
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Don't actually send packets, just parse pcaps",
+    )
+
     parser.add_argument("pcap_dir")
     parser.add_argument(
         "-d",
@@ -62,14 +70,6 @@ if __name__ == "__main__":
         type=int,
         default=4 * 60 * 60,
         help="attempt to replay all PCAPs in duration seconds",
-    )
-
-    parser.add_argument(
-        "-N",
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Don't actually send packets, just parse pcaps",
     )
 
     subparsers = parser.add_subparsers(dest="output_type")
