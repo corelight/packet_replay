@@ -29,9 +29,7 @@ class PCAPFileInfo(object):
         if not os.path.isdir(current_cache_dir):
             os.makedirs(current_cache_dir)
 
-        print(f"{current_cache_dir}")
         self._filecache = os.path.join(current_cache_dir, f"{self._filename}.cache")
-        print(f"{self._filecache}")
         self._filecache_loaded = False
         self._filecache_entries = {}
 
@@ -160,6 +158,7 @@ class PCAPScheduler(object):
     def add_pcap(self, filename):
         if filename in self.pcaps:
             raise Exception(f"pcap {filename} already added")
+        logger.info(f"adding {filename}")
         self.current_pcap_id += 1
         info = PCAPFileInfo(filename, self.current_pcap_id)
         self.pcaps[filename] = info.get_pcap_info(max_duration=self.max_duration)
