@@ -60,7 +60,7 @@ class PCAPFileInfo(object):
     def _get_pcap_info(self):
         logger.debug(f"get info for {self._filename_long}")
         pcap_info = {
-            "filename": self._filename_long,
+            "filename": self._filename,
             "packets": 0,
             "bytes": 0,
             "start": None,
@@ -119,6 +119,7 @@ class PCAPFileInfo(object):
                     break
 
             if valid_cache:
+                cached["filename"] = self._filename_long
                 return cached
 
         pcap_info = self._get_pcap_info()
@@ -140,6 +141,7 @@ class PCAPFileInfo(object):
             replay_duration = pcap_info["duration"] / replay_rate
         pcap_info["replay_rate"] = replay_rate
         pcap_info["replay_duration"] = replay_duration
+        pcap_info["id"] = self._pcap_id
 
         return pcap_info
 
