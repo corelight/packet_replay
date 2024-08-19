@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import binascii
 import os
 import sys
 import socket
@@ -120,7 +121,8 @@ class PCAPPlayerGENEVE(PCAPPlayerUDP):
         speed=1.0,
         flags=0x00,
         vni=100,
-        options=b"",
+        add_tag=False,
+        options=None,
         **kw,
     ):
         super().__init__(
@@ -133,6 +135,21 @@ class PCAPPlayerGENEVE(PCAPPlayerUDP):
         )
         version = 0
         protocol_type = 0x6558  # Transparent Ethernet bridging
+
+        if not options:
+            options = b""
+
+        if add_tag:
+            # TODO: this could do odd things with unicode, but doest't seem worth the
+            # effort to fix it today
+            tag_part = filename
+            tag_byte_len = len(tag_part.encode())
+            if tag_byte_len > 124:
+                truncation_marker = "..."
+                to_strip = tag_byte_len - 124 - len(truncation_marker)
+                tag_part = truncation_marker + tag_part[to_strip:]
+            options = build_geneve_option(0xFF72, 0x7F, tag_part.encode()) + options
+
         length = len(options)
         if length & 0x3:
             raise ValueError("Options length must be a multiple of 4 bytes")
@@ -160,6 +177,39 @@ class PCAPPlayerPacket(PCAPPlayer):
         self._socket.send(bytes(pkt))
 
 
+def build_geneve_options_hex(options):
+    return b"".join(map(build_geneve_option_hex, options))
+
+
+def build_geneve_option_hex(s):
+    opt_class, opt_type, opt_val = s.split(":")
+    opt_class = int(opt_class, base=16)
+    opt_type = int(opt_type, base=16)
+    opt_val = binascii.unhexlify(opt_val)
+
+    return build_geneve_option(opt_class, opt_type, opt_val)
+
+
+def build_geneve_option(opt_class, opt_type, opt_val):
+    if opt_class > 0xFFFF:
+        raise Exception("opt_class out of range")
+    if opt_type > 0xFF:
+        # technically, the first bit is the critical bit
+        raise Exception("opt_type out of range")
+
+    m = len(opt_val) % 4
+    opt_pad = 4 - m if m else 0
+    opt_val = opt_val + opt_pad * b"\0"
+
+    opt_len = len(opt_val) // 4
+    if (opt_len & 0x1F) != opt_len:
+        # field is only 5 bits long
+        raise Exception("opt_val is too long")
+
+    option = struct.pack(f"!HBB{opt_len * 4}s", opt_class, opt_type, opt_len, opt_val)
+    return option
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -174,8 +224,24 @@ if __name__ == "__main__":
     parser_vxlan = subparsers.add_parser("vxlan")
     parser_vxlan.add_argument("-t", "--target-ip", type=str)
 
-    parser_vxlan = subparsers.add_parser("geneve")
-    parser_vxlan.add_argument("-t", "--target-ip", type=str)
+    parser_geneve = subparsers.add_parser("geneve")
+    parser_geneve.add_argument("-t", "--target-ip", type=str)
+    parser_geneve.add_argument(
+        "-T",
+        "--add-tag",
+        action="store_true",
+        help="Add an experimental tag to the geneve header with (part of) the pcap name",
+        default=False,
+    )
+    parser_geneve.add_argument(
+        "-o",
+        "--geneve-option",
+        action="append",
+        dest="geneve_options",
+        help="<option_class_hex>:<option_type_hex>:<option_value_hex> -- "
+        " option value will be null-padded on the right to a multiple of 4 bytes",
+        type=str,
+    )
 
     parser_packet = subparsers.add_parser("packet")
     parser_packet.add_argument("-i", "--interface", type=str)
@@ -189,10 +255,15 @@ if __name__ == "__main__":
             insert_log=args.insert_log,
         )
     elif args.output_type == "geneve":
+        opts = b""
+        if args.geneve_options:
+            opts = build_geneve_options_hex(args.geneve_options)
         player = PCAPPlayerGENEVE(
             args.pcap_file,
             target_ip=args.target_ip,
             speed=args.speed,
+            add_tag=args.add_tag,
+            options=opts,
             insert_log=args.insert_log,
         )
     elif args.output_type == "packet":

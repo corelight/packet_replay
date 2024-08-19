@@ -141,7 +141,7 @@ class PCAPFileInfo(object):
             replay_duration = pcap_info["duration"] / replay_rate
         pcap_info["replay_rate"] = replay_rate
         pcap_info["replay_duration"] = replay_duration
-        pcap_info["id"] = self._pcap_id
+        pcap_info["pcap_id"] = self._pcap_id
 
         return pcap_info
 
@@ -223,7 +223,7 @@ class PCAPScheduler(object):
             player = self.PCAPPlayer(
                 filename=pcap["filename"],
                 speed=pcap["replay_rate"],
-                pcap_id=pcap["id"],
+                pcap_id=pcap["pcap_id"],
                 insert_log=self.insert_log,
                 **self.get_player_kwargs(),
             )

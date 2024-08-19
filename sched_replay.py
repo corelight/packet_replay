@@ -35,6 +35,17 @@ class PCAPSchedVXLAN(PCAPSchedUDPBase):
 class PCAPSchedGENEVE(PCAPSchedUDPBase):
     PCAPPlayer = PCAPPlayerGENEVE
 
+    def __init__(self, *args, add_tag=False, **kw):
+        self.add_tag = add_tag
+
+        super().__init__(*args, **kw)
+
+    def get_player_kwargs(self):
+        args = super().get_player_kwargs()
+        if self.add_tag:
+            args["add_tag"] = self.add_tag
+        return args
+
 
 class PCAPSchedPacket(PCAPScheduler):
     PCAPPlayer = PCAPPlayerPacket
@@ -78,8 +89,15 @@ if __name__ == "__main__":
     parser_vxlan = subparsers.add_parser("vxlan")
     parser_vxlan.add_argument("-t", "--target-ip", type=str)
 
-    parser_vxlan = subparsers.add_parser("geneve")
-    parser_vxlan.add_argument("-t", "--target-ip", type=str)
+    parser_geneve = subparsers.add_parser("geneve")
+    parser_geneve.add_argument("-t", "--target-ip", type=str)
+    parser_geneve.add_argument(
+        "-T",
+        "--add-tag",
+        action="store_true",
+        help="Add an experimental tag to the geneve header with (part of) the pcap name",
+        default=False,
+    )
 
     parser_packet = subparsers.add_parser("packet")
     parser_packet.add_argument("-i", "--interface", type=str)
@@ -98,6 +116,7 @@ if __name__ == "__main__":
             target_ip=args.target_ip,
             max_duration=args.duration,
             insert_log=args.insert_log,
+            add_tag=args.add_tag,
         )
     elif args.output_type == "packet":
         sched = PCAPSchedPacket(
