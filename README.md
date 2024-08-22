@@ -1,4 +1,4 @@
-### Python-based PCAP replay (alpha)
+### Python-based PCAP replay
 
 Try to replay packets.
 
@@ -24,4 +24,8 @@ Examples:
 # replay all pcaps under packet_dir in around 1 hour (3600 seconds)
 # vlan encapsulate and send to 172.17.0.13
 ./sched_replay.py -d 3600 packet_dir/ vxlan -t 172.17.0.13
+
+# replay packets.pcap, at 100x the original rate, geneve-encapsulated to
+# 172.17.0.13, and include a non-standard geneve option containing the filename
+./replay.py -s 100 packets.pcap geneve -T -t 172.17.0.13
 ```
