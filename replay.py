@@ -7,8 +7,27 @@ import sys
 import socket
 import struct
 import time
+from decimal import Decimal
 
-from scapy.all import PcapReader, Ether, IP, UDP, Raw
+from scapy.all import RawPcapReader, RawPcapNgReader, Ether, IP, UDP, Raw
+
+
+def read_packet(reader):
+    """Return packet with epoch time representing the time from the header in the pcap"""
+
+    pkt, pkt_info = reader._read_packet()
+    pkt_time = None
+
+    if isinstance(reader, RawPcapNgReader):
+        # do the NG thing
+        if pkt_info.tshigh is not None:
+            pkt_time = Decimal((pkt_info.tshigh << 32) + pkt_info.tslow) / pkt_info.tsresol
+            return (pkt, pkt_time, pkt_info)
+
+    # do the non-NG thing
+    power = Decimal(10) ** Decimal(-9 if reader.nano else -6)
+    pkt_time = Decimal(pkt_info.sec + power * pkt_info.usec)
+    return (pkt, pkt_time, pkt_info)
 
 
 class PCAPPlayer(object):
@@ -19,7 +38,7 @@ class PCAPPlayer(object):
             # fail early if we can't read the file for some reason
             f.read(1)
         self.filename = filename
-        self.speed = 1.0 / speed
+        self.speed = Decimal(1.0) / Decimal(speed)
         self.insert_log = insert_log
         self.pcap_id = pcap_id
 
@@ -40,30 +59,29 @@ class PCAPPlayer(object):
         packet /= UDP(dport=514, sport=self.pcap_id % 65536)
         packet /= Raw(load=payload)
 
-        return packet
+        return bytes(packet)
 
     def replay_pcap(self):
-        reader = PcapReader(self.filename)
-        pkt = reader.read_packet()
+        reader = RawPcapReader(self.filename)
+        (pkt, pkt_time, pkt_info) = read_packet(reader)
 
-        replay_start = time.time()
-        pkt_start = pkt.time
+        replay_start = Decimal(time.time())
+        pkt_start = pkt_time
         send_at = 0
 
-        if self.insert_log:
-            # reopen file since I don't see a way to seek(0)
-            del reader
-            reader = PcapReader(self.filename)
+        # switch to raw packets to avoid all of the parsing shenanigans
 
-            pkt = self.get_syslog_pkt()
+        if self.insert_log:
+            syslog_pkt = self.get_syslog_pkt()
+            self._replay(syslog_pkt)
 
         while pkt:
             self._replay(pkt)
 
             try:
-                pkt = reader.read_packet()
-                send_at = self.speed * (pkt.time - pkt_start) + replay_start
-                curr_time = time.time()
+                (pkt, pkt_time, pkt_info) = read_packet(reader)
+                send_at = self.speed * (pkt_time - pkt_start) + replay_start
+                curr_time = Decimal(time.time())
                 wait_time = send_at - curr_time
                 wait_time = float(wait_time)
                 if wait_time > 0.0001:
